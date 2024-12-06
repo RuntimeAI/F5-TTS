@@ -1,0 +1,11 @@
+# F5-TTS | E2-TTS
+model = "F5-TTS"
+ref_audio = "sucai_dm.wav"
+# If an empty "", transcribes the reference audio automatically.
+ref_text = ""
+gen_text = "没有获取到生成文本"
+# File with text to generate. Ignores the text above.
+gen_file = "gen_text.txt"
+remove_silence = false
+output_dir = "tests"
+output_file = "infer_cli_out.wav"
