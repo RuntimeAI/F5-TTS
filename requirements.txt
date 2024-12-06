@@ -6,7 +6,8 @@ torchaudio>=2.1.0
 numpy>=1.24.0
 huggingface-hub>=0.20.0
 safetensors>=0.4.1
+vocos>=0.1.0  # For vocoder
 
-# Optional dependencies
+# Audio processing
 soundfile>=0.12.1
 librosa>=0.10.1

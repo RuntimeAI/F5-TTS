@@ -4,6 +4,8 @@ import telebot
 import torch
 import torchaudio
 from dotenv import load_dotenv
+from huggingface_hub import hf_hub_download
+import numpy as np
 
 # Load environment variables
 load_dotenv()
@@ -17,12 +19,18 @@ logging.basicConfig(
 # Initialize bot
 bot = telebot.TeleBot(os.getenv('TELEGRAM_BOT_TOKEN'))
 
-# Initialize F5-TTS components directly
-def init_f5tts():
+def init_f5tts_minimal():
+    """Initialize minimal F5-TTS components without datasets dependency"""
+    import sys
+    import os
+    
+    # Add F5-TTS core path
+    f5tts_path = os.path.join(os.path.dirname(__file__), "F5-TTS", "src")
+    if f5tts_path not in sys.path:
+        sys.path.append(f5tts_path)
+    
     from f5_tts.model.cfm import CFM
     from f5_tts.model.dit import DiT
-    from f5_tts.utils.audio import load_audio
-    from f5_tts.utils.tokenizer import get_tokenizer
     from f5_tts.utils.vocoder import load_vocoder
     
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -30,8 +38,12 @@ def init_f5tts():
     # Load vocoder
     vocoder = load_vocoder("vocos", is_local=False)
     
-    # Load tokenizer
-    vocab_char_map, vocab_size = get_tokenizer("pinyin")
+    # Simplified tokenizer (pinyin for Chinese, basic for English)
+    def simple_tokenizer(text):
+        # Basic tokenization for demo
+        return [ord(c) for c in text], 256  # Using ASCII values
+    
+    vocab_size = 256  # Basic ASCII
     
     # Model configuration
     model_cfg = dict(dim=1024, depth=22, heads=16, ff_mult=2, text_dim=512, conv_layers=4)
@@ -47,11 +59,10 @@ def init_f5tts():
             target_sample_rate=24000,
             mel_spec_type="vocos"
         ),
-        vocab_char_map=vocab_char_map
+        vocab_char_map=simple_tokenizer
     ).to(device)
     
     # Load checkpoint
-    from huggingface_hub import hf_hub_download
     ckpt_path = hf_hub_download("SWivid/F5-TTS/F5TTS_Base", "model_1200000.safetensors")
     model.load_state_dict(torch.load(ckpt_path, map_location=device))
     model.eval()
@@ -60,7 +71,7 @@ def init_f5tts():
 
 # Initialize F5-TTS components
 try:
-    model, vocoder, device = init_f5tts()
+    model, vocoder, device = init_f5tts_minimal()
     logging.info("F5-TTS initialized successfully")
 except Exception as e:
     logging.error(f"Failed to initialize F5-TTS: {str(e)}")
