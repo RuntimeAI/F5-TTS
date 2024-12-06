@@ -1,7 +1,6 @@
 import os
 import logging
-from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+import telebot
 from f5_tts.api import F5TTS
 from dotenv import load_dotenv
 
@@ -14,20 +13,31 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-# Initialize F5-TTS
+# Initialize bot and F5-TTS
+bot = telebot.TeleBot(os.getenv('TELEGRAM_BOT_TOKEN'))
 f5tts = F5TTS()
 
-async def gen_cute(update: Update, context: ContextTypes.DEFAULT_TYPE):
+@bot.message_handler(commands=['start'])
+def send_welcome(message):
+    """Send welcome message when /start command is received"""
+    bot.reply_to(message, 
+        "Hi! I'm a voice generation bot using F5-TTS.\n"
+        "Use /gen_cute followed by your text to generate a cute voice.\n"
+        "Example: /gen_cute Hello world!"
+    )
+
+@bot.message_handler(commands=['gen_cute'])
+def generate_cute_voice(message):
     """Generate cute voice using F5-TTS"""
     try:
         # Get the text after the command
-        text = ' '.join(context.args)
+        text = message.text.replace('/gen_cute', '', 1).strip()
         if not text:
-            await update.message.reply_text("Please provide text after the command. Example: /gen-cute Hello world!")
+            bot.reply_to(message, "Please provide text after the command. Example: /gen_cute Hello world!")
             return
 
         # Send processing message
-        processing_msg = await update.message.reply_text("🎵 Generating voice... Please wait")
+        processing_msg = bot.reply_to(message, "🎵 Generating voice... Please wait")
 
         # Generate audio using F5-TTS
         wav, sr, _ = f5tts.infer(
@@ -39,42 +49,25 @@ async def gen_cute(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Send the generated audio
         with open("temp_output.wav", "rb") as audio:
-            await update.message.reply_voice(audio)
+            bot.send_voice(message.chat.id, audio)
         
         # Delete processing message
-        await processing_msg.delete()
+        bot.delete_message(message.chat.id, processing_msg.message_id)
         
         # Clean up temporary file
         os.remove("temp_output.wav")
 
     except Exception as e:
         logging.error(f"Error generating voice: {str(e)}")
-        await update.message.reply_text("Sorry, there was an error generating the voice. Please try again later.")
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Send a message when the command /start is issued."""
-    await update.message.reply_text(
-        "Hi! I'm a voice generation bot using F5-TTS.\n"
-        "Use /gen-cute followed by your text to generate a cute voice.\n"
-        "Example: /gen-cute Hello world!"
-    )
+        bot.reply_to(message, "Sorry, there was an error generating the voice. Please try again later.")
 
 def main():
     """Start the bot."""
-    # Get bot token from environment variable
-    bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
-    if not bot_token:
-        raise ValueError("No bot token found in environment variables!")
-
-    # Create the Application
-    application = Application.builder().token(bot_token).build()
-
-    # Add handlers
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("gen-cute", gen_cute))
-
-    # Start the Bot
-    application.run_polling()
+    logging.info("Bot started...")
+    try:
+        bot.infinity_polling()
+    except Exception as e:
+        logging.error(f"Bot stopped due to error: {str(e)}")
 
 if __name__ == '__main__':
     main()
