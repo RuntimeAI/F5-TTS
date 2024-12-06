@@ -1,7 +1,8 @@
 import os
 import logging
 import telebot
-from f5_tts.api import F5TTS
+import torch
+import torchaudio
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -13,10 +14,34 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-# Initialize bot and F5-TTS
+# Initialize bot
 bot = telebot.TeleBot(os.getenv('TELEGRAM_BOT_TOKEN'))
-f5tts = F5TTS()
 
+# Initialize F5-TTS components directly
+def init_f5tts():
+    from f5_tts.model.cfm import CFM
+    from f5_tts.model.dit import DiT
+    from f5_tts.utils.audio import load_audio
+    from f5_tts.utils.tokenizer import get_tokenizer
+    from f5_tts.utils.vocoder import load_vocoder
+    
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    
+    # Load vocoder
+    vocoder = load_vocoder("vocos", is_local=False)
+    
+    # Load tokenizer
+    vocab_char_map, vocab_size = get_tokenizer("pinyin")
+    
+    # Model configuration
+    model_cfg = dict(dim=1024, depth=22, heads=16, ff_mult=2, text_dim=512, conv_layers=4)
+    
+    # Initialize model
+    model = CFM(
+        transformer=DiT(**model_cfg, text_num_embeds=vocab_size, mel_dim=100),
+        mel_spec_kwargs=dict(
+            n_fft=1024,
+            hop_length=256,
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     """Send welcome message when /start command is received"""

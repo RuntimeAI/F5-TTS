@@ -1,25 +1,12 @@
 # Core dependencies
 pyTelegramBotAPI==4.14.1
 python-dotenv==1.0.1
+torch>=2.1.0
+torchaudio>=2.1.0
 numpy>=1.24.0
-torch>=2.1.0  # Required by F5-TTS
-torchaudio>=2.1.0  # Required by F5-TTS
-soundfile>=0.12.1  # For audio processing
-librosa>=0.10.1  # For audio processing
-gradio>=4.16.0  # Required by F5-TTS
-transformers>=4.36.0  # Required by F5-TTS
-accelerate>=0.26.0  # For model acceleration
-huggingface-hub>=0.20.0  # For model downloading
+huggingface-hub>=0.20.0
+safetensors>=0.4.1
 
-# F5-TTS from GitHub
-git+https://github.com/SWivid/F5-TTS.git
-
-# Development tools
-black==24.1.1  # Code formatting
-pylint==3.0.3  # Code linting
-pytest==8.0.0  # Testing
-pre-commit==3.6.0  # Git hooks
-isort==5.13.2  # Import sorting
-
-# Monitoring and logging
-loguru==0.7.2  # Better logging 
+# Optional dependencies
+soundfile>=0.12.1
+librosa>=0.10.1
