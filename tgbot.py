@@ -4,6 +4,7 @@ import telebot
 import logging
 from datetime import datetime
 from dotenv import load_dotenv
+from concurrent.futures import ThreadPoolExecutor
 
 # Configure logging
 logging.basicConfig(
@@ -23,6 +24,23 @@ TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 # Initialize bot
 bot = telebot.TeleBot(TOKEN)
 
+# Initialize thread pool
+executor = ThreadPoolExecutor(max_workers=3)  # Limit concurrent generations
+
+# Cache for recently generated audio
+audio_cache = {}
+MAX_CACHE_SIZE = 100  # Maximum number of cached items
+
+def generate_audio(text):
+    """Separate function for audio generation to be run in thread"""
+    result = subprocess.run(
+        ['./tts_gen.sh', text],
+        capture_output=True,
+        text=True,
+        check=True
+    )
+    return result.stdout.strip().split('\n')[-1]
+
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     user_info = f"@{message.from_user.username}" if message.from_user.username else f"ID:{message.from_user.id}"
@@ -35,12 +53,8 @@ def send_welcome(message):
 
 @bot.message_handler(commands=['tts_gen'])
 def generate_tts(message):
-    # Log user info and request
     user_info = f"@{message.from_user.username}" if message.from_user.username else f"ID:{message.from_user.id}"
     text = message.text.replace('/tts_gen', '', 1).strip()
-    request_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    logger.info(f"TTS Request - User: {user_info}, Text: {text}, Time: {request_time}")
     
     # Check if text was provided
     if not text:
@@ -48,69 +62,54 @@ def generate_tts(message):
         bot.reply_to(message, "Please provide text after the command.\nExample: /tts_gen Hello World!")
         return
     
-    # Send processing message with status
-    status_text = (
-        "🎯 Processing your request:\n"
-        "⌛ Initializing TTS generation...\n"
-        "📝 Text length: {} characters"
-    ).format(len(text))
-    
-    processing_msg = bot.reply_to(message, status_text)
-    
-    try:
-        # Update status - Starting TTS
-        bot.edit_message_text(
-            status_text + "\n🔄 Generating audio...",
-            message.chat.id,
-            processing_msg.message_id
-        )
-        
-        # Call the tts_gen.sh script
-        logger.info(f"Starting TTS generation for user {user_info}")
-        result = subprocess.run(
-            ['./tts_gen.sh', text],
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        
-        # Get the output file path
-        output_file = result.stdout.strip().split('\n')[-1]
-        file_size = os.path.getsize(output_file) / 1024  # Size in KB
-        
-        # Update status - Sending file
-        bot.edit_message_text(
-            status_text + f"\n✅ Audio generated successfully!\n📤 Sending file ({file_size:.1f}KB)...",
-            message.chat.id,
-            processing_msg.message_id
-        )
-        
-        # Send the audio file
-        with open(output_file, 'rb') as audio:
+    # Check cache first
+    cache_key = text[:100]  # Use first 100 chars as key
+    if cache_key in audio_cache:
+        logger.info(f"Cache hit for text: {text[:30]}...")
+        with open(audio_cache[cache_key], 'rb') as audio:
             bot.send_voice(message.chat.id, audio)
-        
-        # Log success
-        logger.info(f"Successfully generated and sent audio for user {user_info}")
-        
-        # Delete processing message
-        bot.delete_message(message.chat.id, processing_msg.message_id)
-        
-    except subprocess.CalledProcessError as e:
-        error_msg = f"Error generating audio: {e.stderr}"
-        logger.error(f"TTS generation failed for user {user_info}: {error_msg}")
-        bot.edit_message_text(
-            f"❌ {error_msg}", 
-            message.chat.id, 
-            processing_msg.message_id
-        )
-    except Exception as e:
-        error_msg = f"An error occurred: {str(e)}"
-        logger.error(f"Unexpected error for user {user_info}: {error_msg}")
-        bot.edit_message_text(
-            f"❌ {error_msg}", 
-            message.chat.id, 
-            processing_msg.message_id
-        )
+        return
+
+    processing_msg = bot.reply_to(message, "⌛ Queued for processing...")
+    
+    def process_audio():
+        try:
+            # Update status
+            bot.edit_message_text(
+                "🎯 Processing:\n⌛ Generating audio...",
+                message.chat.id,
+                processing_msg.message_id
+            )
+            
+            # Generate audio in thread
+            output_file = generate_audio(text)
+            
+            # Cache the result
+            if len(audio_cache) >= MAX_CACHE_SIZE:
+                # Remove oldest item
+                oldest_key = next(iter(audio_cache))
+                audio_cache.pop(oldest_key)
+            audio_cache[cache_key] = output_file
+            
+            # Send the audio
+            with open(output_file, 'rb') as audio:
+                bot.send_voice(message.chat.id, audio)
+            
+            # Delete processing message
+            bot.delete_message(message.chat.id, processing_msg.message_id)
+            logger.info(f"Successfully processed request for {user_info}")
+            
+        except Exception as e:
+            error_msg = f"Error: {str(e)}"
+            logger.error(f"Error for {user_info}: {error_msg}")
+            bot.edit_message_text(
+                f"❌ {error_msg}",
+                message.chat.id,
+                processing_msg.message_id
+            )
+    
+    # Submit task to thread pool
+    executor.submit(process_audio)
 
 @bot.message_handler(func=lambda message: True)
 def echo_all(message):
