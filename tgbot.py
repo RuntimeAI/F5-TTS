@@ -8,6 +8,7 @@ from huggingface_hub import hf_hub_download
 import numpy as np
 import sys
 import subprocess
+import fcntl
 
 # Add src directory to Python path
 src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "src"))
@@ -106,10 +107,35 @@ def generate_cute_voice(message):
         logging.error(f"Error generating voice: {str(e)}")
         bot.reply_to(message, "Sorry, there was an error generating the voice. Please try again later.")
 
+class SingleInstanceBot:
+    def __init__(self):
+        self.lockfile = "/tmp/telegram_bot.lock"
+        self.lockfd = None
+
+    def ensure_single_instance(self):
+        """Ensure only one instance of the bot is running"""
+        try:
+            self.lockfd = open(self.lockfile, 'w')
+            fcntl.lockf(self.lockfd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return True
+        except IOError:
+            logging.error("Another instance is already running")
+            return False
+
+    def cleanup(self):
+        """Clean up lock file"""
+        if self.lockfd:
+            fcntl.lockf(self.lockfd, fcntl.LOCK_UN)
+            self.lockfd.close()
+            try:
+                os.remove(self.lockfile)
+            except OSError:
+                pass
+
 def delete_webhook():
     """Delete any existing webhook"""
     try:
-        bot.delete_webhook()
+        bot.delete_webhook(drop_pending_updates=True)
         logging.info("Webhook deleted successfully")
     except Exception as e:
         logging.error(f"Error deleting webhook: {e}")
@@ -117,15 +143,24 @@ def delete_webhook():
 
 def main():
     """Start the bot."""
-    logging.info("Bot started...")
+    instance_manager = SingleInstanceBot()
+    
+    if not instance_manager.ensure_single_instance():
+        logging.error("Bot is already running. Exiting.")
+        sys.exit(1)
+
     try:
-        # Delete webhook before starting the bot
+        logging.info("Bot started...")
+        
+        # Delete webhook and drop pending updates
         delete_webhook()
         
-        # Start polling
-        bot.infinity_polling()
+        # Start polling with clean=True
+        bot.infinity_polling(timeout=60, long_polling_timeout=30)
     except Exception as e:
         logging.error(f"Bot stopped due to error: {str(e)}")
+    finally:
+        instance_manager.cleanup()
 
 if __name__ == '__main__':
     main()
