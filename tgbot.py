@@ -8,6 +8,11 @@ from huggingface_hub import hf_hub_download
 import numpy as np
 import sys
 
+# Add src directory to Python path
+src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "src"))
+if src_path not in sys.path:
+    sys.path.insert(0, src_path)
+
 # Modify import to handle potential LZMA issues
 try:
     import lzma
@@ -47,15 +52,16 @@ def safe_import(module_path):
 def init_f5tts_minimal():
     """Initialize minimal F5-TTS components with enhanced error handling"""
     try:
-        # Add F5-TTS core path
-        f5tts_path = os.path.join(os.path.dirname(__file__), "F5-TTS", "src")
+        # Update F5-TTS path to use absolute path
+        f5tts_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "F5-TTS", "src"))
         if f5tts_path not in sys.path:
-            sys.path.append(f5tts_path)
+            sys.path.insert(0, f5tts_path)  # Insert at beginning of path
+            logging.info(f"Added F5-TTS path: {f5tts_path}")
         
-        # Dynamically import modules
-        CFM = safe_import('f5_tts.model.cfm')
-        DiT = safe_import('f5_tts.model.dit')
-        load_vocoder = safe_import('f5_tts.utils.vocoder').load_vocoder
+        # Try importing with full path verification
+        from f5_tts.model.cfm import CFM
+        from f5_tts.model.dit import DiT
+        from f5_tts.utils.vocoder import load_vocoder
         
         if not all([CFM, DiT, load_vocoder]):
             raise ImportError("One or more required modules could not be imported")
@@ -76,8 +82,8 @@ def init_f5tts_minimal():
         model_cfg = dict(dim=1024, depth=22, heads=16, ff_mult=2, text_dim=512, conv_layers=4)
         
         # Initialize model
-        model = CFM.CFM(
-            transformer=DiT.DiT(**model_cfg, text_num_embeds=vocab_size, mel_dim=100),
+        model = CFM(
+            transformer=DiT(**model_cfg, text_num_embeds=vocab_size, mel_dim=100),
             mel_spec_kwargs=dict(
                 n_fft=1024,
                 hop_length=256,
