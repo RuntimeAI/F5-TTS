@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from huggingface_hub import hf_hub_download
 import numpy as np
 import sys
+import subprocess
 
 # Add src directory to Python path
 src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "src"))
@@ -49,20 +50,24 @@ def safe_import(module_path):
         logging.error(f"Could not import {module_path}: {e}")
         return None
 
-def init_f5tts_minimal():
-    """Initialize minimal F5-TTS components with enhanced error handling"""
+def generate_audio_using_shell(text):
+    """Generate audio using the shell script"""
     try:
-        # Import F5TTS API
-        from f5_tts.api import F5TTS
+        # Run the shell script and capture its output
+        result = subprocess.run(['./tts_gen.sh', text], 
+                              capture_output=True, 
+                              text=True,
+                              check=True)
         
-        # Pass device as string instead of torch.device
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        tts = F5TTS(device=device)
+        # Get the last line which contains the output file path
+        output_file = result.stdout.strip().split('\n')[-1]
         
-        return tts
-    
+        return output_file
+    except subprocess.CalledProcessError as e:
+        logging.error(f"Shell script error: {e.stderr}")
+        raise
     except Exception as e:
-        logging.error(f"Detailed initialization error: {e}")
+        logging.error(f"Error running shell script: {e}")
         raise
 
 @bot.message_handler(commands=['start'])
@@ -76,7 +81,7 @@ def send_welcome(message):
 
 @bot.message_handler(commands=['gen_cute'])
 def generate_cute_voice(message):
-    """Generate cute voice using F5-TTS"""
+    """Generate cute voice using shell script"""
     try:
         # Get the text after the command
         text = message.text.replace('/gen_cute', '', 1).strip()
@@ -87,39 +92,19 @@ def generate_cute_voice(message):
         # Send processing message
         processing_msg = bot.reply_to(message, "🎵 Generating voice... Please wait")
 
-        # Generate audio using F5TTS
-        wav, sr, _ = tts.infer(
-            ref_file=os.getenv('REFERENCE_AUDIO'),
-            ref_text="",  # Will auto-transcribe if empty
-            gen_text=text,
-            nfe_step=32,
-            cfg_strength=2.0,
-            remove_silence=True
-        )
-        
-        # Save temporary file
-        temp_path = "temp_output.wav"
-        tts.export_wav(wav, temp_path, remove_silence=True)
+        # Generate audio using shell script
+        output_file = generate_audio_using_shell(text)
         
         # Send audio
-        with open(temp_path, "rb") as audio_file:
+        with open(output_file, "rb") as audio_file:
             bot.send_voice(message.chat.id, audio_file)
         
-        # Delete processing message and temp file
+        # Delete processing message
         bot.delete_message(message.chat.id, processing_msg.message_id)
-        os.remove(temp_path)
 
     except Exception as e:
         logging.error(f"Error generating voice: {str(e)}")
         bot.reply_to(message, "Sorry, there was an error generating the voice. Please try again later.")
-
-# Initialize F5-TTS components
-try:
-    tts = init_f5tts_minimal()
-    logging.info("F5-TTS initialized successfully")
-except Exception as e:
-    logging.error(f"Failed to initialize F5-TTS: {str(e)}")
-    raise
 
 def main():
     """Start the bot."""
