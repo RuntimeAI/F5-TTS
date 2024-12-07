@@ -24,7 +24,7 @@ f5-tts_infer-cli \
     --ref_audio "$REF_AUDIO" \
     --ref_text "$REF_TEXT" \
     --gen_text "$1" \
-    --output "$output_file"
+    --output_file "$output_file"
 
 # Check if generation was successful
 if [ $? -eq 0 ]; then
