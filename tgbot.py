@@ -55,9 +55,8 @@ def init_f5tts_minimal():
         # Import F5TTS API
         from f5_tts.api import F5TTS
         
-        # Initialize F5TTS with default model
+        # Initialize F5TTS with default settings
         tts = F5TTS(
-            model="F5-TTS",
             device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
             dtype=torch.float32
         )
