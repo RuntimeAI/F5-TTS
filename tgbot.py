@@ -52,67 +52,21 @@ def safe_import(module_path):
 def init_f5tts_minimal():
     """Initialize minimal F5-TTS components with enhanced error handling"""
     try:
-        # Update F5-TTS path to use absolute path
-        f5tts_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "F5-TTS", "src"))
-        if f5tts_path not in sys.path:
-            sys.path.insert(0, f5tts_path)  # Insert at beginning of path
-            logging.info(f"Added F5-TTS path: {f5tts_path}")
+        # Import F5TTS API
+        from f5_tts.api import F5TTS
         
-        # Try importing with full path verification
-        from f5_tts.model.cfm import CFM
-        from f5_tts.model.dit import DiT
-        from f5_tts.utils.vocoder import load_vocoder
+        # Initialize F5TTS with default model
+        tts = F5TTS(
+            model="F5-TTS",
+            device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
+            dtype=torch.float32
+        )
         
-        if not all([CFM, DiT, load_vocoder]):
-            raise ImportError("One or more required modules could not be imported")
-        
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        
-        # Load vocoder
-        vocoder = load_vocoder("vocos", is_local=False)
-        
-        # Simplified tokenizer (pinyin for Chinese, basic for English)
-        def simple_tokenizer(text):
-            # Basic tokenization for demo
-            return [ord(c) for c in text], 256  # Using ASCII values
-        
-        vocab_size = 256  # Basic ASCII
-        
-        # Model configuration
-        model_cfg = dict(dim=1024, depth=22, heads=16, ff_mult=2, text_dim=512, conv_layers=4)
-        
-        # Initialize model
-        model = CFM(
-            transformer=DiT(**model_cfg, text_num_embeds=vocab_size, mel_dim=100),
-            mel_spec_kwargs=dict(
-                n_fft=1024,
-                hop_length=256,
-                win_length=1024,
-                n_mel_channels=100,
-                target_sample_rate=24000,
-                mel_spec_type="vocos"
-            ),
-            vocab_char_map=simple_tokenizer
-        ).to(device)
-        
-        # Load checkpoint
-        ckpt_path = hf_hub_download("SWivid/F5-TTS/F5TTS_Base", "model_1200000.safetensors")
-        model.load_state_dict(torch.load(ckpt_path, map_location=device))
-        model.eval()
-        
-        return model, vocoder, device
+        return tts
     
     except Exception as e:
         logging.error(f"Detailed initialization error: {e}")
         raise
-
-# Initialize F5-TTS components
-try:
-    model, vocoder, device = init_f5tts_minimal()
-    logging.info("F5-TTS initialized successfully")
-except Exception as e:
-    logging.error(f"Failed to initialize F5-TTS: {str(e)}")
-    raise
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
@@ -136,39 +90,39 @@ def generate_cute_voice(message):
         # Send processing message
         processing_msg = bot.reply_to(message, "🎵 Generating voice... Please wait")
 
-        # Load reference audio
-        ref_audio, sr = torchaudio.load(os.getenv('REFERENCE_AUDIO'))
-        if ref_audio.shape[0] > 1:
-            ref_audio = torch.mean(ref_audio, dim=0, keepdim=True)
-        ref_audio = ref_audio.to(device)
-
-        # Generate audio
-        with torch.inference_mode():
-            generated = model.sample(
-                cond=ref_audio,
-                text=[text],
-                duration=int(len(text) * 256),  # Approximate duration
-                steps=32,
-                cfg_strength=2.0
-            )
-            audio = vocoder.decode(generated.permute(0, 2, 1))
-            audio = audio.cpu().squeeze().numpy()
-
-        # Save and send audio
-        torchaudio.save("temp_output.wav", torch.tensor(audio).unsqueeze(0), 24000)
+        # Generate audio using F5TTS
+        wav, sr, _ = tts.infer(
+            ref_file=os.getenv('REFERENCE_AUDIO'),
+            ref_text="",  # Will auto-transcribe if empty
+            gen_text=text,
+            nfe_step=32,
+            cfg_strength=2.0,
+            remove_silence=True
+        )
         
-        with open("temp_output.wav", "rb") as audio_file:
+        # Save temporary file
+        temp_path = "temp_output.wav"
+        tts.export_wav(wav, temp_path, remove_silence=True)
+        
+        # Send audio
+        with open(temp_path, "rb") as audio_file:
             bot.send_voice(message.chat.id, audio_file)
         
-        # Delete processing message
+        # Delete processing message and temp file
         bot.delete_message(message.chat.id, processing_msg.message_id)
-        
-        # Clean up temporary file
-        os.remove("temp_output.wav")
+        os.remove(temp_path)
 
     except Exception as e:
         logging.error(f"Error generating voice: {str(e)}")
         bot.reply_to(message, "Sorry, there was an error generating the voice. Please try again later.")
+
+# Initialize F5-TTS components
+try:
+    tts = init_f5tts_minimal()
+    logging.info("F5-TTS initialized successfully")
+except Exception as e:
+    logging.error(f"Failed to initialize F5-TTS: {str(e)}")
+    raise
 
 def main():
     """Start the bot."""
