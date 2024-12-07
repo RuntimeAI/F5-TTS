@@ -106,10 +106,23 @@ def generate_cute_voice(message):
         logging.error(f"Error generating voice: {str(e)}")
         bot.reply_to(message, "Sorry, there was an error generating the voice. Please try again later.")
 
+def delete_webhook():
+    """Delete any existing webhook"""
+    try:
+        bot.delete_webhook()
+        logging.info("Webhook deleted successfully")
+    except Exception as e:
+        logging.error(f"Error deleting webhook: {e}")
+        raise
+
 def main():
     """Start the bot."""
     logging.info("Bot started...")
     try:
+        # Delete webhook before starting the bot
+        delete_webhook()
+        
+        # Start polling
         bot.infinity_polling()
     except Exception as e:
         logging.error(f"Bot stopped due to error: {str(e)}")
